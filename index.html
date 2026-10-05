@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="description" content="60秒耐久の脳汁アーケード。光る玉を叩いてコンボを繋げ、FEVERで脳を焼け。">
+<meta name="theme-color" content="#070312">
+<title>DopaMax</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Dela+Gothic+One&family=M+PLUS+1p:wght@500;800&display=swap">
+<style>
+/* Layout: one-screen neon arcade. Canvas fills the viewport, a pointer-transparent HUD floats over it,
+   start/result screens are full overlays. Single committed dark look (no light theme by design). */
+:root{
+  --bg:#070312; --bg2:#1a0a44; --fg:#f7f3ff; --dim:#9f90c9; --line:rgba(159,144,201,.25);
+  --pink:#ff2d95; --cyan:#22f0ff; --gold:#ffe53c; --violet:#8b5cff; --red:#ff4b4b; --green:#5dff9a;
+  --display:'Dela Gothic One','M PLUS 1p',system-ui,sans-serif;
+  --body:'M PLUS 1p',system-ui,-apple-system,sans-serif;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--body);overflow:hidden;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent;-webkit-touch-callout:none}
+[hidden]{display:none!important}
+#app{position:relative;width:100%;height:100%;overflow:hidden;background:var(--bg)}
+#game{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:crosshair}
+
+/* HUD */
+.hud{position:absolute;inset:0;pointer-events:none;padding:10px 16px 14px;display:flex;flex-direction:column;justify-content:space-between}
+.hud-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.label{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--dim);font-weight:800;line-height:1}
+.score{font-family:var(--display);font-size:clamp(30px,7vw,56px);line-height:1;font-variant-numeric:tabular-nums;
+  text-shadow:0 0 22px rgba(34,240,255,.55);margin-top:4px;min-width:0;word-break:break-all}
+.fever .score{background:linear-gradient(90deg,var(--pink),var(--gold),var(--cyan),var(--pink));background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;animation:slide 1.2s linear infinite}
+.timer-wrap{text-align:right}
+.timer{font-family:var(--display);font-size:clamp(30px,7vw,56px);line-height:1;font-variant-numeric:tabular-nums;margin-top:4px}
+.timer.hot{color:var(--red);text-shadow:0 0 24px rgba(255,75,75,.8);animation:pulse .5s ease-in-out infinite}
+.mute{pointer-events:auto;position:absolute;right:16px;top:calc(50% - 20px);width:40px;height:40px;border-radius:50%;
+  border:1px solid var(--line);background:rgba(7,3,18,.55);color:var(--dim);font-size:16px;cursor:pointer;display:grid;place-items:center}
+.mute:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.hud-bottom{display:flex;flex-direction:column;gap:10px}
+.combo-row{display:flex;justify-content:space-between;align-items:flex-end;gap:12px}
+.combo-wrap{opacity:0;transform:translateY(8px);transition:opacity .15s,transform .15s}
+.combo-wrap.on{opacity:1;transform:none}
+.combo{font-family:var(--display);font-size:clamp(44px,12vw,96px);line-height:.95;color:var(--pink);
+  text-shadow:0 0 28px rgba(255,45,149,.7);display:inline-block;transform-origin:left bottom;font-variant-numeric:tabular-nums}
+.combo.punch{animation:punch .22s cubic-bezier(.2,1.6,.4,1)}
+.fever .combo{color:var(--gold);text-shadow:0 0 30px rgba(255,229,60,.8)}
+.combo-bar{height:4px;width:min(160px,40vw);background:rgba(255,255,255,.12);border-radius:2px;overflow:hidden;margin-top:6px}
+.combo-bar i{display:block;height:100%;width:100%;background:var(--pink);transform-origin:left;}
+.fever .combo-bar i{background:var(--gold)}
+.mult{font-family:var(--display);font-size:clamp(26px,7vw,52px);line-height:1;color:var(--cyan);text-shadow:0 0 22px rgba(34,240,255,.6);text-align:right}
+.mult.fever{color:var(--gold);text-shadow:0 0 26px rgba(255,229,60,.8)}
+.mult small{display:block;font-family:var(--body);font-size:11px;letter-spacing:.2em;color:var(--dim);font-weight:800;margin-bottom:4px}
+.fever-wrap{height:10px;border-radius:5px;background:rgba(255,255,255,.08);border:1px solid var(--line);overflow:hidden;position:relative}
+.fever-fill{height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--pink));transition:width .12s ease-out;box-shadow:0 0 16px var(--pink)}
+.fever .fever-fill{background:linear-gradient(90deg,var(--pink),var(--gold),var(--cyan),var(--pink));background-size:300% 100%;animation:slide .8s linear infinite}
+.fever-label{position:absolute;inset:0;display:grid;place-items:center;font-size:9px;letter-spacing:.3em;font-weight:800;color:rgba(255,255,255,.75)}
+
+/* Center announcements */
+.announce{position:absolute;left:16px;right:16px;top:38%;text-align:center;pointer-events:none;opacity:0;
+  font-family:var(--display);line-height:1.05;text-wrap:balance}
+.announce .a-main{font-size:clamp(34px,10vw,88px);color:#fff;text-shadow:0 0 30px var(--cyan),0 4px 0 rgba(0,0,0,.5)}
+.announce .a-sub{font-family:var(--body);font-weight:800;font-size:clamp(14px,3.6vw,22px);color:var(--fg);margin-top:8px;letter-spacing:.08em}
+.announce.show{animation:ann 1.1s cubic-bezier(.2,1.4,.3,1) forwards}
+.announce.gold .a-main{color:var(--gold);text-shadow:0 0 36px var(--gold),0 4px 0 rgba(0,0,0,.5)}
+.announce.fever .a-main{background:linear-gradient(90deg,var(--pink),var(--gold),var(--cyan),var(--pink));background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;text-shadow:none;animation:slide .7s linear infinite;filter:drop-shadow(0 0 20px rgba(255,255,255,.5))}
+.announce.bad .a-main{color:#8d879f;text-shadow:0 4px 0 rgba(0,0,0,.5);font-size:clamp(24px,7vw,56px)}
+.announce.hot .a-main{color:var(--red);text-shadow:0 0 30px var(--red),0 4px 0 rgba(0,0,0,.5)}
+.announce.go .a-main{color:var(--green);text-shadow:0 0 30px var(--green),0 4px 0 rgba(0,0,0,.5)}
+
+/* Overlays */
+.screen{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:24px 16px;
+  background:rgba(7,3,18,.84);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);overflow-y:auto;text-align:center}
+.panel{width:100%;max-width:520px;display:flex;flex-direction:column;align-items:center;gap:18px;min-width:0}
+.eyebrow{font-size:12px;letter-spacing:.3em;color:var(--dim);font-weight:800}
+.title{font-family:var(--display);font-size:clamp(52px,16vw,118px);line-height:.9;letter-spacing:-.02em;margin:0;
+  background:linear-gradient(180deg,#fff 0%,var(--cyan) 35%,var(--pink) 75%,var(--violet) 100%);
+  -webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 26px rgba(255,45,149,.55));text-wrap:balance}
+.tag{font-size:clamp(15px,4vw,19px);font-weight:800;margin:0;color:var(--fg);text-wrap:balance}
+.rules{list-style:none;margin:0;padding:0;display:grid;gap:10px;text-align:left;width:100%;max-width:400px}
+.rules li{display:flex;gap:12px;align-items:center;font-size:14px;font-weight:500;color:var(--fg);line-height:1.45}
+.rules li b{font-weight:800}
+.dot{flex:none;width:18px;height:18px;border-radius:50%;box-shadow:0 0 14px currentColor;background:currentColor}
+.best{font-size:13px;color:var(--dim);font-weight:800;letter-spacing:.08em}
+.best b{font-family:var(--display);color:var(--gold);font-size:20px;margin-left:6px;font-variant-numeric:tabular-nums;letter-spacing:0}
+.btn{font-family:var(--display);font-size:clamp(20px,5vw,26px);padding:18px 46px;border-radius:999px;border:0;color:#fff;cursor:pointer;
+  background:linear-gradient(135deg,var(--pink),var(--violet));box-shadow:0 0 0 2px rgba(255,255,255,.25) inset,0 10px 40px rgba(255,45,149,.45);
+  letter-spacing:.06em;animation:breathe 1.6s ease-in-out infinite;transition:transform .1s}
+.btn:active{transform:scale(.95)}
+.btn:focus-visible{outline:3px solid var(--cyan);outline-offset:3px}
+.btn.ghost{background:rgba(255,255,255,.06);box-shadow:0 0 0 1px var(--line) inset;animation:none;font-family:var(--body);font-weight:800;font-size:15px;padding:12px 22px;color:var(--fg)}
+.note{font-size:12px;color:var(--dim)}
+
+/* Result */
+.r-title{font-family:var(--display);font-size:clamp(28px,8vw,48px);margin:0;color:var(--fg)}
+.r-score{font-family:var(--display);font-size:clamp(44px,13vw,92px);line-height:1;font-variant-numeric:tabular-nums;
+  color:var(--cyan);text-shadow:0 0 30px rgba(34,240,255,.6);word-break:break-all}
+.r-rank-wrap{display:flex;flex-direction:column;align-items:center;gap:4px;min-height:120px;justify-content:center}
+.r-rank{font-family:var(--display);font-size:clamp(84px,26vw,170px);line-height:.9;opacity:0;transform:scale(3);filter:blur(12px)}
+.r-rank.reveal{animation:slam .5s cubic-bezier(.2,1.2,.3,1) forwards}
+.r-rank.D{color:#8d879f}.r-rank.C{color:var(--cyan)}.r-rank.B{color:var(--green)}.r-rank.A{color:var(--violet);text-shadow:0 0 30px var(--violet)}
+.r-rank.S{color:var(--pink);text-shadow:0 0 36px var(--pink)}.r-rank.SS{color:var(--gold);text-shadow:0 0 40px var(--gold)}
+.r-rank.SSS{background:linear-gradient(90deg,var(--pink),var(--gold),var(--cyan),var(--pink));background-size:300% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;animation:slam .5s cubic-bezier(.2,1.2,.3,1) forwards,slide .8s linear infinite;filter:drop-shadow(0 0 24px rgba(255,255,255,.6))}
+.r-comment{font-weight:800;font-size:15px;color:var(--fg);opacity:0;transition:opacity .4s}
+.r-comment.on{opacity:1}
+.r-new{font-family:var(--display);font-size:clamp(20px,6vw,32px);color:var(--gold);text-shadow:0 0 24px var(--gold);animation:wiggle .5s ease-in-out infinite}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;width:100%}
+.stat{background:rgba(255,255,255,.05);border:1px solid var(--line);border-radius:12px;padding:10px 8px;min-width:0}
+.stat .v{font-family:var(--display);font-size:clamp(18px,5vw,26px);line-height:1.1;font-variant-numeric:tabular-nums;color:var(--fg)}
+.stat .k{font-size:10px;letter-spacing:.12em;color:var(--dim);font-weight:800;margin-top:4px}
+.btn-row{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.toast{position:absolute;left:50%;bottom:24px;transform:translateX(-50%);background:var(--fg);color:var(--bg);font-weight:800;font-size:13px;
+  padding:10px 16px;border-radius:999px;opacity:0;transition:opacity .2s;pointer-events:none}
+.toast.on{opacity:1}
+
+@keyframes punch{0%{transform:scale(1)}40%{transform:scale(1.28)}100%{transform:scale(1)}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.12)}}
+@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.05)}}
+@keyframes slide{to{background-position:300% 0}}
+@keyframes ann{0%{opacity:0;transform:scale(1.8);filter:blur(10px)}18%{opacity:1;transform:scale(1);filter:blur(0)}75%{opacity:1;transform:scale(1.04)}100%{opacity:0;transform:scale(1.1) translateY(-20px)}}
+@keyframes slam{to{opacity:1;transform:scale(1);filter:blur(0)}}
+@keyframes wiggle{0%,100%{transform:rotate(-3deg) scale(1)}50%{transform:rotate(3deg) scale(1.06)}}
+@media (prefers-reduced-motion:reduce){
+  .btn,.timer.hot,.r-new,.fever .score,.fever .fever-fill,.announce.fever .a-main,.r-rank.SSS{animation:none}
+  .announce.show{animation:ann 1.1s ease-out forwards}
+}
+</style>
+
+</head>
+<body>
+<div id="app">
+  <canvas id="game" aria-label="ゲーム画面"></canvas>
+
+  <div class="hud" id="hud" hidden>
+    <div class="hud-top">
+      <div style="min-width:0">
+        <div class="label">Score</div>
+        <div class="score" id="score">0</div>
+      </div>
+      <div class="timer-wrap">
+        <div class="label">Time</div>
+        <div class="timer" id="timer">60.0</div>
+      </div>
+    </div>
+    <div class="hud-bottom">
+      <div class="combo-row">
+        <div class="combo-wrap" id="comboWrap">
+          <div class="label">Combo</div>
+          <div class="combo" id="combo">0</div>
+          <div class="combo-bar"><i id="comboBar"></i></div>
+        </div>
+        <div class="mult" id="mult"><small>MULT</small>×1</div>
+      </div>
+      <div class="fever-wrap"><div class="fever-fill" id="feverFill"></div><div class="fever-label">FEVER</div></div>
+    </div>
+  </div>
+  <button class="mute" id="muteBtn" type="button" aria-label="音の切り替え" hidden>♪</button>
+
+  <div class="announce" id="announce" aria-live="polite"></div>
+
+  <div class="screen" id="startScreen">
+    <div class="panel">
+      <div class="eyebrow">60秒耐久 ・ 脳汁アーケード</div>
+      <h1 class="title">DOPAMAX</h1>
+      <p class="tag">光る玉を叩け。繋げろ。脳を焼け。</p>
+      <ul class="rules">
+        <li><span class="dot" style="color:var(--pink)"></span><span><b>玉をタップ</b>で破壊。連続で叩くと<b>コンボ</b>と<b>倍率</b>が跳ね上がる。</span></li>
+        <li><span class="dot" style="color:var(--red)"></span><span>リングが消える前に叩け。<b>逃すとコンボが切れる</b>。ギリギリで救うとボーナス。</span></li>
+        <li><span class="dot" style="color:var(--cyan)"></span><span>10コンボ以上で<b>衝撃波</b>が発生。近くの玉を<b>連鎖</b>で巻き込む。</span></li>
+        <li><span class="dot" style="color:var(--gold)"></span><span>ゲージMAXで<b>FEVER</b>。全部2倍、コンボ無敵。<b>★の玉はJACKPOT</b>。</span></li>
+      </ul>
+      <div class="best">ベストスコア <b id="bestStart">0</b></div>
+      <button class="btn" id="startBtn" type="button">START</button>
+      <div class="note">音が出ます。ヘッドホン推奨。スペースキーでも開始できます。</div>
+    </div>
+  </div>
+
+  <div class="screen" id="resultScreen" hidden>
+    <div class="panel">
+      <h2 class="r-title" id="rTitle">RESULT</h2>
+      <div class="label">Score</div>
+      <div class="r-score" id="rScore">0</div>
+      <div class="r-rank-wrap">
+        <div class="r-rank" id="rRank"></div>
+        <div class="r-comment" id="rComment"></div>
+      </div>
+      <div class="r-new" id="rNew" hidden>NEW RECORD!!</div>
+      <div class="stats" id="rStats"></div>
+      <div class="best">ベストスコア <b id="rBest">0</b></div>
+      <div class="btn-row">
+        <button class="btn" id="againBtn" type="button">もう一回</button>
+        <button class="btn ghost" id="copyBtn" type="button">結果をコピー</button>
+      </div>
+    </div>
+  </div>
+  <div class="toast" id="toast">コピーした！</div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const canvas = $('#game'), ctx = canvas.getContext('2d');
+const el = {
+  app: $('#app'), hud: $('#hud'), score: $('#score'), timer: $('#timer'), combo: $('#combo'), comboWrap: $('#comboWrap'),
+  comboBar: $('#comboBar'), mult: $('#mult'), fever: $('#feverFill'), announce: $('#announce'), start: $('#startScreen'),
+  result: $('#resultScreen'), best: $('#bestStart'), rScore: $('#rScore'), rRank: $('#rRank'), rComment: $('#rComment'),
+  rStats: $('#rStats'), rBest: $('#rBest'), rNew: $('#rNew'), mute: $('#muteBtn'), toast: $('#toast')
+};
+const DISPLAY = "'Dela Gothic One','M PLUS 1p',sans-serif";
+const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const ROUND_MS = 60000, COMBO_MS = 1500, FEVER_MS = 8000;
+const fmt = n => Math.round(n).toLocaleString('en-US');
+const multOf = c => 1 + Math.floor(c / 5);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+};
+let best = Number(store.get('dopamax.best', 0)) || 0;
+let runs = Number(store.get('dopamax.runs', 0)) || 0;
+el.best.textContent = fmt(best);
+function haptic(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
+
+/* ---------------- Audio: everything synthesized ---------------- */
+const Audio = (() => {
+  let ac = null, master = null, muted = false, noiseBuf = null;
+  let musicOn = false, musicTimer = null, nextBeat = 0, beatIdx = 0, musicStart = 0, bpm = 128, feverMusic = false;
+  const SCALE = (() => { const d = [0, 2, 4, 7, 9], a = []; for (let o = 0; o < 5; o++) for (const s of d) a.push(130.81 * Math.pow(2, o + s / 12)); return a; })();
+  const sc = i => SCALE[Math.max(0, Math.min(SCALE.length - 1, i))];
+  function init() {
+    if (ac) return;
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    ac = new AC();
+    const comp = ac.createDynamicsCompressor(); comp.threshold.value = -14; comp.ratio.value = 8; comp.knee.value = 10;
+    master = ac.createGain(); master.gain.value = muted ? 0 : 0.85;
+    master.connect(comp); comp.connect(ac.destination);
+  }
+  function resume() { if (ac && ac.state === 'suspended') ac.resume(); }
+  const now = () => ac ? ac.currentTime : 0;
+  function env(g, t, a, d, v) {
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(Math.max(0.0002, v), t + a);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + a + d);
+  }
+  function tone(o) {
+    if (!ac) return;
+    const t = o.at != null ? o.at : now(), a = o.a != null ? o.a : 0.005;
+    const osc = ac.createOscillator(); osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.freq, t);
+    if (o.slide) osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.slide), t + (o.slideDur || o.dur));
+    const g = ac.createGain(); env(g, t, a, o.dur, o.vol != null ? o.vol : 0.3);
+    let node = osc;
+    if (o.lp) { const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.setValueAtTime(o.lp, t); if (o.lpTo) f.frequency.exponentialRampToValueAtTime(o.lpTo, t + o.dur); osc.connect(f); node = f; }
+    node.connect(g); g.connect(master);
+    osc.start(t); osc.stop(t + a + o.dur + 0.05);
+  }
+  function noise(o) {
+    if (!ac) return;
+    if (!noiseBuf) { noiseBuf = ac.createBuffer(1, ac.sampleRate, ac.sampleRate); const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; }
+    const t = o.at != null ? o.at : now(), a = o.a != null ? o.a : 0.002;
+    const src = ac.createBufferSource(); src.buffer = noiseBuf; src.loop = true;
+    const f = ac.createBiquadFilter(); f.type = o.type || 'highpass'; f.frequency.setValueAtTime(o.freq || 1000, t);
+    if (o.freqTo) f.frequency.exponentialRampToValueAtTime(o.freqTo, t + o.dur);
+    const g = ac.createGain(); env(g, t, a, o.dur, o.vol != null ? o.vol : 0.2);
+    src.connect(f); f.connect(g); g.connect(master);
+    src.start(t); src.stop(t + a + o.dur + 0.05);
+  }
+  /* SFX */
+  const sfx = {
+    pop(idx, fever) { const f = sc(idx); tone({ freq: f, dur: 0.16, vol: 0.28 }); tone({ freq: f * 2, type: 'triangle', dur: 0.1, vol: 0.1 }); noise({ freq: 3000, dur: 0.03, vol: 0.12 }); if (fever) tone({ freq: f * 1.5, dur: 0.22, vol: 0.12 }); },
+    crit(idx) { const f = sc(idx); [1, 1.5, 2].forEach(m => tone({ freq: f * m, type: 'square', dur: 0.3, vol: 0.11, slide: f * m * 0.8, lp: 2600 })); tone({ freq: 120, dur: 0.25, vol: 0.55, slide: 40 }); noise({ freq: 800, type: 'bandpass', dur: 0.15, vol: 0.3 }); },
+    near() { tone({ freq: 2600, dur: 0.25, vol: 0.14, a: 0.01 }); tone({ freq: 3900, dur: 0.3, vol: 0.08, a: 0.02 }); },
+    jackpot() { const t = now(); for (let i = 0; i < 10; i++) tone({ at: t + i * 0.055, freq: sc(8 + i), type: 'triangle', dur: 0.25, vol: 0.25 }); tone({ at: t + 0.55, freq: sc(18), dur: 0.9, vol: 0.25 }); tone({ at: t + 0.55, freq: sc(18) * 1.005, dur: 0.9, vol: 0.2 }); tone({ at: t + 0.55, freq: 55, dur: 0.6, vol: 0.5, slide: 30 }); noise({ at: t + 0.55, freq: 4000, dur: 0.5, vol: 0.15 }); },
+    breakCombo() { tone({ freq: 420, type: 'sawtooth', dur: 0.35, vol: 0.22, slide: 70, lp: 1200, lpTo: 200 }); noise({ freq: 300, type: 'lowpass', dur: 0.2, vol: 0.2 }); },
+    drop() { tone({ freq: 220, type: 'triangle', dur: 0.12, vol: 0.1, slide: 110 }); },
+    whiff() { noise({ freq: 2000, dur: 0.03, vol: 0.05 }); },
+    feverStart() { const t = now(); noise({ at: t, freq: 200, freqTo: 8000, type: 'bandpass', dur: 0.6, vol: 0.3, a: 0.3 }); [0, 4, 7, 11, 14].forEach(s => tone({ at: t + 0.55, freq: 261.6 * Math.pow(2, s / 12), type: 'sawtooth', dur: 1.2, vol: 0.11, lp: 3000, lpTo: 600 })); tone({ at: t + 0.55, freq: 65, dur: 0.8, vol: 0.6, slide: 35 }); },
+    tick() { tone({ freq: 1200, type: 'square', dur: 0.04, vol: 0.09 }); },
+    finish() { const t = now(); noise({ at: t, freq: 500, type: 'bandpass', dur: 0.4, vol: 0.4 }); tone({ at: t, freq: 70, dur: 0.7, vol: 0.7, slide: 30 }); },
+    countTick(p) { tone({ freq: 600 + p * 1400, type: 'square', dur: 0.03, vol: 0.06 }); },
+    slam(rankIdx) { const t = now(); tone({ at: t, freq: 60, dur: 0.8, vol: 0.8, slide: 28 }); noise({ at: t, freq: 1500, type: 'lowpass', dur: 0.3, vol: 0.35 }); const root = 130.81 * Math.pow(2, rankIdx * 2 / 12); [0, 4, 7, 12].forEach(s => tone({ at: t + 0.05, freq: root * Math.pow(2, s / 12), type: 'sawtooth', dur: 1.4, vol: 0.1, lp: 2500, lpTo: 400 })); },
+    record() { const t = now(); [0, 4, 7, 12, 16, 19, 24].forEach((s, i) => tone({ at: t + i * 0.07, freq: 523.25 * Math.pow(2, s / 12), type: 'triangle', dur: 0.5, vol: 0.2 })); }
+  };
+  /* Music: kick / hat / snare / bass loop, Am–F–C–G */
+  const ROOTS = [55, 43.65, 65.41, 49.0], CHORDS = [[0, 3, 7], [0, 4, 7], [0, 4, 7], [0, 4, 7]];
+  function scheduleBeat(t, i) {
+    const step = i % 16, bar = Math.floor(i / 16) % 4, root = ROOTS[bar];
+    if (step % 4 === 0) tone({ at: t, freq: 150, dur: 0.22, vol: 0.9, slide: 40, slideDur: 0.12 });
+    if (step % 2 === 1) noise({ at: t, freq: 7000, dur: 0.03, vol: 0.08 });
+    if (step === 4 || step === 12) { noise({ at: t, freq: 1800, type: 'bandpass', dur: 0.12, vol: 0.18 }); tone({ at: t, freq: 180, type: 'triangle', dur: 0.1, vol: 0.2, slide: 120 }); }
+    if ([0, 3, 6, 8, 10, 14].includes(step)) tone({ at: t, freq: root * (step === 6 || step === 14 ? 2 : 1), type: 'sawtooth', dur: 0.14, vol: 0.18, lp: feverMusic ? 1800 : 700 });
+    if (feverMusic && step % 8 === 0) CHORDS[bar].forEach(s => tone({ at: t, freq: root * 4 * Math.pow(2, s / 12), type: 'square', dur: 0.4, vol: 0.05, lp: 1500 }));
+    if (feverMusic && step % 2 === 0) noise({ at: t, freq: 9000, dur: 0.02, vol: 0.06 });
+  }
+  function musicLoop() {
+    if (!ac || !musicOn) return;
+    const spb = 60 / bpm / 4;
+    while (nextBeat < ac.currentTime + 0.15) { scheduleBeat(nextBeat, beatIdx); nextBeat += spb; beatIdx++; }
+  }
+  function startMusic() { if (!ac) return; musicOn = true; nextBeat = musicStart = ac.currentTime + 0.05; beatIdx = 0; if (musicTimer) clearInterval(musicTimer); musicTimer = setInterval(musicLoop, 40); }
+  function stopMusic() { musicOn = false; if (musicTimer) { clearInterval(musicTimer); musicTimer = null; } }
+  function setFever(on) { feverMusic = on; bpm = on ? 150 : 128; }
+  function beatPhase() { if (!ac || !musicOn) return null; const spb = 60 / bpm; const dt = ac.currentTime - musicStart; if (dt < 0) return 0; return (dt % spb) / spb; }
+  function toggleMute() { muted = !muted; if (master) master.gain.value = muted ? 0 : 0.85; return muted; }
+  return Object.assign({ init, resume, startMusic, stopMusic, setFever, beatPhase, toggleMute, isMuted: () => muted }, sfx);
+})();
+
+/* ---------------- Game state ---------------- */
+const G = {
+  phase: 'menu', orbs: [], parts: [], floaters: [], waves: [], chain: [], combo: 0, comboT: 0, score: 0, dispScore: 0,
+  timeLeft: ROUND_MS, elapsed: 0, fever: 0, feverGauge: 0, spawnT: 0, shake: 0, flash: { a: 0, c: '#fff' }, stats: null,
+  lastSec: 60, w: 1, h: 1, dpr: 1, scale: 1, finishT: 0, feverCount: 0
+};
+const HUD_TOP = 110, HUD_BOTTOM = 100;
+
+function resize() {
+  const r = el.app.getBoundingClientRect();
+  G.w = Math.max(1, r.width); G.h = Math.max(1, r.height);
+  G.dpr = Math.min(2, window.devicePixelRatio || 1);
+  canvas.width = Math.round(G.w * G.dpr); canvas.height = Math.round(G.h * G.dpr);
+  G.scale = Math.min(1.3, Math.max(0.78, Math.min(G.w, G.h) / 720));
+}
+window.addEventListener('resize', resize);
+
+function startGame() {
+  Audio.init(); Audio.resume();
+  Object.assign(G, { phase: 'play', orbs: [], parts: [], floaters: [], waves: [], chain: [], combo: 0, comboT: 0, score: 0, dispScore: 0,
+    timeLeft: ROUND_MS, elapsed: 0, fever: 0, feverGauge: 0, spawnT: 350, shake: 0, lastSec: 60, finishT: 0, feverCount: 0 });
+  G.stats = { taps: 0, hits: 0, crits: 0, jackpots: 0, maxCombo: 0, chains: 0, near: 0, expired: 0 };
+  el.start.hidden = true; el.result.hidden = true; el.hud.hidden = false; el.mute.hidden = false;
+  el.timer.classList.remove('hot'); el.app.classList.remove('fever');
+  Audio.setFever(false); Audio.startMusic();
+  announce('GO!!', 'go');
+  updateHud();
+}
+
+function spawnOrb() {
+  const s = G.scale, m = 48 * s;
+  const prog = Math.min(1, G.elapsed / ROUND_MS);
+  const gold = Math.random() < 0.06;
+  const r = (gold ? 30 : 26 + Math.random() * 14) * s;
+  const x = m + Math.random() * Math.max(1, G.w - 2 * m);
+  const span = Math.max(1, G.h - HUD_TOP - HUD_BOTTOM - 2 * m);
+  const y = HUD_TOP + m + Math.random() * span;
+  let life = 2600 - 900 * prog;
+  if (G.fever > 0) life *= 1.5;
+  if (G.timeLeft < 10000) life *= 0.9;
+  const ang = Math.random() * Math.PI * 2, sp = (10 + 40 * prog) * s;
+  const hues = [320, 185, 265, 140, 20];
+  G.orbs.push({ x, y, r, life, age: 0, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp, hue: gold ? 52 : hues[Math.floor(Math.random() * hues.length)], gold, dead: false, queued: false, seed: Math.random() * 10 });
+}
+
+function easeOutBack(x) { const c1 = 1.70158, c3 = c1 + 1; return 1 + c3 * Math.pow(x - 1, 3) + c1 * Math.pow(x - 1, 2); }
+function orbVisualR(o) {
+  const remain = 1 - o.age / o.life;
+  const shrink = remain < 0.4 ? 0.55 + 0.45 * (remain / 0.4) : 1;
+  const grow = o.age < 180 ? easeOutBack(o.age / 180) : 1;
+  return o.r * shrink * grow;
+}
+
+function update(dt) {
+  if (G.phase === 'play') {
+    G.elapsed += dt; G.timeLeft -= dt;
+    const sec = Math.ceil(G.timeLeft / 1000);
+    if (sec !== G.lastSec) {
+      G.lastSec = sec;
+      if (sec <= 10 && sec > 0) { Audio.tick(); el.timer.classList.add('hot'); if (sec === 10) announce('ラスト10秒!!', 'hot'); }
+    }
+    if (G.timeLeft <= 0) { G.timeLeft = 0; endRound(); }
+    else {
+      const prog = G.elapsed / ROUND_MS;
+      let interval = 700 - 380 * prog;
+      if (G.fever > 0) interval *= 0.5;
+      if (G.timeLeft < 10000) interval *= 0.8;
+      interval = Math.max(220, interval);
+      const cap = G.fever > 0 ? 20 : 14;
+      G.spawnT -= dt;
+      if ((G.spawnT <= 0 || G.orbs.length < 2) && G.orbs.length < cap) { spawnOrb(); G.spawnT = interval * (0.75 + Math.random() * 0.5); }
+      for (const o of G.orbs) {
+        if (o.dead) continue;
+        o.age += dt; o.x += o.vx * dt / 1000; o.y += o.vy * dt / 1000;
+        if (o.x < o.r) { o.x = o.r; o.vx = Math.abs(o.vx); } else if (o.x > G.w - o.r) { o.x = G.w - o.r; o.vx = -Math.abs(o.vx); }
+        if (o.y < HUD_TOP) { o.y = HUD_TOP; o.vy = Math.abs(o.vy); } else if (o.y > G.h - HUD_BOTTOM) { o.y = G.h - HUD_BOTTOM; o.vy = -Math.abs(o.vy); }
+        if (o.age >= o.life) { o.dead = true; expireOrb(o); }
+      }
+      if (G.combo > 0 && G.fever <= 0) { G.comboT -= dt; if (G.comboT <= 0) dropCombo(false); }
+      if (G.fever > 0) {
+        G.fever -= dt; G.feverGauge = Math.max(0, G.fever / FEVER_MS);
+        if (G.fever <= 0) { G.fever = 0; G.feverGauge = 0; el.app.classList.remove('fever'); Audio.setFever(false); G.comboT = COMBO_MS; announce('FEVER END', 'bad'); }
+      }
+      for (const c of G.chain) c.t -= dt;
+      const ready = G.chain.filter(c => c.t <= 0);
+      G.chain = G.chain.filter(c => c.t > 0);
+      for (const c of ready) if (!c.orb.dead) popOrb(c.orb, { chain: true, depth: c.depth });
+    }
+    G.orbs = G.orbs.filter(o => !o.dead);
+  } else if (G.phase === 'finish') {
+    G.finishT -= dt; if (G.finishT <= 0) showResult();
+  }
+  /* effects */
+  const fr = Math.pow(0.9, dt / 16);
+  for (const p of G.parts) {
+    p.age += dt; p.vx *= fr; p.vy = p.vy * fr + p.g * dt / 1000;
+    if (p.drift) p.vx += Math.sin(p.age / 300 + p.seed) * 20 * dt / 1000 * 60;
+    p.x += p.vx * dt / 1000; p.y += p.vy * dt / 1000; p.rot += p.vr * dt / 1000;
+  }
+  G.parts = G.parts.filter(p => p.age < p.life && p.y < G.h + 40);
+  for (const f of G.floaters) { f.age += dt; f.y -= 55 * dt / 1000; }
+  G.floaters = G.floaters.filter(f => f.age < f.life);
+  for (const w of G.waves) { w.r += (w.R - w.r) * Math.min(1, dt / 90); w.a -= dt / 380; }
+  G.waves = G.waves.filter(w => w.a > 0);
+  G.shake = Math.max(0, G.shake - dt * 0.05);
+  G.flash.a = Math.max(0, G.flash.a - dt / 260);
+  G.dispScore += (G.score - G.dispScore) * Math.min(1, dt / 90);
+  if (Math.abs(G.score - G.dispScore) < 1) G.dispScore = G.score;
+}
+
+function popOrb(o, opt) {
+  opt = opt || {};
+  if (o.dead) return;
+  o.dead = true;
+  const st = G.stats; st.hits++;
+  G.combo++; G.comboT = COMBO_MS;
+  if (G.combo > st.maxCombo) st.maxCombo = G.combo;
+  const mult = multOf(G.combo), remain = 1 - o.age / o.life;
+  const near = remain < 0.18 && !opt.chain, crit = Math.random() < 0.12, fever = G.fever > 0;
+  let v = 100 * mult;
+  if (crit) v *= 3; if (o.gold) v *= 10; if (near) v *= 1.5; if (fever) v *= 2; if (opt.chain) v *= 1.2;
+  v = Math.round(v); G.score += v;
+  if (crit) st.crits++; if (o.gold) st.jackpots++; if (near) st.near++; if (opt.chain) st.chains++;
+  if (G.fever <= 0) { G.feverGauge += o.gold ? 0.25 : crit ? 0.09 : 0.045; if (G.feverGauge >= 1) startFever(); }
+  if (o.gold) Audio.jackpot(); else if (crit) Audio.crit(G.combo); else Audio.pop(G.combo, fever);
+  if (near) Audio.near();
+  haptic(crit || o.gold ? 30 : 8);
+  burst(o.x, o.y, o.hue, crit ? 36 : o.gold ? 50 : 18, o.gold);
+  floater(o.x, o.y - o.r, '+' + fmt(v), { size: 18 + Math.min(28, Math.log10(v) * 5), hue: o.gold ? 52 : o.hue, white: crit || o.gold });
+  if (crit) floater(o.x, o.y - o.r - 34, 'CRITICAL!!', { size: 22, hue: 320, white: true, life: 1000 });
+  if (near) floater(o.x, o.y + o.r + 12, 'ギリギリ!!', { size: 16, hue: 52, life: 900 });
+  if (opt.chain) floater(o.x + o.r * 0.6, o.y + o.r * 0.4, 'CHAIN', { size: 13, hue: 185, life: 700 });
+  if (o.gold) { announce('JACKPOT!!', 'gold'); G.shake = Math.max(G.shake, 16); flash('rgba(255,229,60,0.45)'); }
+  else if (crit) { G.shake = Math.max(G.shake, 9); flash('rgba(255,255,255,0.22)'); }
+  else G.shake = Math.max(G.shake, 2 + Math.min(5, mult * 0.3));
+  const depth = opt.depth || 0;
+  if (G.combo >= 10 && depth < 2) {
+    let R = o.r * 1.4 + mult * 12 * G.scale; R = Math.min(R, 280 * G.scale);
+    G.waves.push({ x: o.x, y: o.y, r: o.r, R, hue: o.hue, a: 1 });
+    let i = 0;
+    for (const q of G.orbs) {
+      if (q === o || q.dead || q.queued) continue;
+      if (Math.hypot(q.x - o.x, q.y - o.y) < R) { q.queued = true; G.chain.push({ orb: q, t: 70 + 70 * i, depth: depth + 1 }); i++; }
+    }
+  }
+  milestone(G.combo);
+  punch(el.combo);
+  updateHud();
+}
+
+const MILESTONES = { 10: 'いいね!', 20: 'キレてる!!', 30: '止まらない!!', 50: 'ヤバい!!!', 75: '神!!!', 100: '超越!!!!', 150: 'ドーパミン全開!!!!', 200: '脳が溶ける!!!!!', 300: '人間卒業!!!!!' };
+function milestone(c) { if (MILESTONES[c]) announce(c + ' COMBO', c >= 75 ? 'gold' : '', MILESTONES[c]); }
+
+function startFever() {
+  G.fever = FEVER_MS; G.feverGauge = 1; G.feverCount++;
+  el.app.classList.add('fever');
+  Audio.feverStart(); Audio.setFever(true);
+  announce('FEVER!!', 'fever', '全部2倍 ・ コンボ無敵');
+  G.shake = Math.max(G.shake, 14); flash('rgba(255,45,149,0.4)');
+  for (let i = 0; i < 5; i++) spawnOrb();
+}
+
+function dropCombo(hard) {
+  if (G.combo === 0) return;
+  const c = G.combo; G.combo = 0; G.comboT = 0;
+  if (hard) { Audio.breakCombo(); announce(c >= 10 ? c + ' COMBO BREAK' : 'MISS', 'bad'); G.shake = Math.max(G.shake, 6); flash('rgba(120,120,140,0.25)'); }
+  else { Audio.drop(); if (c >= 10) announce('コンボ切れ…', 'bad'); }
+  updateHud();
+}
+
+function expireOrb(o) {
+  G.stats.expired++;
+  burst(o.x, o.y, 0, 10, false, true);
+  if (G.fever <= 0) dropCombo(true);
+}
+
+function endRound() {
+  G.phase = 'finish'; G.finishT = 1400; G.chain = [];
+  Audio.stopMusic(); Audio.finish();
+  el.app.classList.remove('fever'); el.timer.classList.remove('hot');
+  announce('FINISH!!', 'go'); G.shake = Math.max(G.shake, 12); flash('rgba(255,255,255,0.5)');
+  for (const o of G.orbs) { o.dead = true; burst(o.x, o.y, o.hue, 10, false); }
+}
+
+const RANKS = [
+  { n: 'D', min: 0, c: 'まだ脳は眠ってる' }, { n: 'C', min: 50000, c: 'ウォームアップ完了' }, { n: 'B', min: 150000, c: 'いい汗かいた' },
+  { n: 'A', min: 300000, c: 'ドーパミン出てる' }, { n: 'S', min: 600000, c: '脳汁ドバドバ' }, { n: 'SS', min: 1000000, c: '人間やめてる' },
+  { n: 'SSS', min: 2000000, c: '神経伝達物質そのもの' }
+];
+let lastResult = null;
+function showResult() {
+  G.phase = 'result';
+  el.hud.hidden = true; el.mute.hidden = true; el.result.hidden = false;
+  const st = G.stats, score = G.score;
+  runs++; store.set('dopamax.runs', runs);
+  const isNew = score > best && score > 0;
+  if (isNew) { best = score; store.set('dopamax.best', best); }
+  let ri = 0; for (let i = 0; i < RANKS.length; i++) if (score >= RANKS[i].min) ri = i;
+  const rank = RANKS[ri];
+  lastResult = { score, rank: rank.n, maxCombo: st.maxCombo };
+  el.rRank.className = 'r-rank'; el.rRank.textContent = ''; el.rComment.className = 'r-comment'; el.rComment.textContent = '';
+  el.rNew.hidden = true; el.rScore.textContent = '0'; el.rBest.textContent = fmt(best); el.best.textContent = fmt(best);
+  const acc = st.taps ? Math.round(100 * Math.min(st.taps, st.hits - st.chains) / st.taps) : 0;
+  const stats = [[st.maxCombo, '最大コンボ'], [st.crits, 'クリティカル'], [st.jackpots, 'JACKPOT'], [st.chains, 'チェーン'], [G.feverCount, 'FEVER'], [acc + '%', '命中率']];
+  el.rStats.innerHTML = '';
+  for (const [v, k] of stats) { const d = document.createElement('div'); d.className = 'stat'; const dv = document.createElement('div'); dv.className = 'v'; dv.textContent = typeof v === 'number' ? fmt(v) : v; const dk = document.createElement('div'); dk.className = 'k'; dk.textContent = k; d.append(dv, dk); el.rStats.appendChild(d); }
+  animateCount(score, reduceMotion ? 300 : 1800, () => {
+    el.rRank.textContent = rank.n; el.rRank.classList.add(rank.n, 'reveal');
+    el.rComment.textContent = rank.c; el.rComment.classList.add('on');
+    Audio.slam(ri); haptic([40, 30, 60]); G.shake = Math.max(G.shake, 14);
+    if (isNew) setTimeout(() => { if (G.phase !== 'result') return; el.rNew.hidden = false; Audio.record(); confetti(); }, 450);
+  });
+}
+function animateCount(target, dur, done) {
+  const start = performance.now(); let lastTick = 0;
+  function step(n) {
+    const p = Math.min(1, (n - start) / dur), e = 1 - Math.pow(1 - p, 3);
+    el.rScore.textContent = fmt(target * e);
+    if (n - lastTick > 55 && p < 1) { lastTick = n; Audio.countTick(p); }
+    if (G.phase !== 'result') return;
+    if (p < 1) requestAnimationFrame(step); else done();
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------------- Effects ---------------- */
+function burst(x, y, hue, n, gold, grey) {
+  const cnt = reduceMotion ? Math.ceil(n / 3) : n;
+  if (G.parts.length > 700) G.parts.splice(0, G.parts.length - 700);
+  for (let i = 0; i < cnt; i++) {
+    const a = Math.random() * Math.PI * 2, sp = (grey ? 60 : 120 + Math.random() * 380) * G.scale;
+    G.parts.push({ x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 450 + Math.random() * 450, age: 0, size: (gold ? 5 : 3) + Math.random() * 4,
+      hue, sat: grey ? 0 : 100, light: grey ? 45 : 60 + Math.random() * 30, rect: gold, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 20, g: gold ? 700 : 250, seed: 0, drift: false });
+  }
+}
+function confetti() {
+  const n = reduceMotion ? 40 : 160;
+  for (let i = 0; i < n; i++) {
+    G.parts.push({ x: Math.random() * G.w, y: -20 - Math.random() * G.h * 0.5, vx: (Math.random() - 0.5) * 120, vy: 80 + Math.random() * 200, life: 4500, age: 0,
+      size: 6 + Math.random() * 6, hue: [320, 185, 52, 265, 140][i % 5], sat: 100, light: 65, rect: true, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 12, g: 160, seed: Math.random() * 10, drift: true });
+  }
+}
+function floater(x, y, text, o) {
+  G.floaters.push({ x, y, text, size: o.size || 18, hue: o.hue == null ? 0 : o.hue, white: !!o.white, age: 0, life: o.life || 850 });
+}
+function flash(c) { if (reduceMotion) return; G.flash.c = c; G.flash.a = 1; }
+let announceTimer = null;
+function announce(main, cls, sub) {
+  const a = el.announce; a.className = 'announce'; a.textContent = '';
+  const m = document.createElement('div'); m.className = 'a-main'; m.textContent = main; a.appendChild(m);
+  if (sub) { const s = document.createElement('div'); s.className = 'a-sub'; s.textContent = sub; a.appendChild(s); }
+  void a.offsetWidth;
+  a.classList.add('show'); if (cls) a.classList.add(cls);
+  clearTimeout(announceTimer); announceTimer = setTimeout(() => a.classList.remove('show'), 1100);
+}
+function punch(e) { if (reduceMotion) return; e.classList.remove('punch'); void e.offsetWidth; e.classList.add('punch'); }
+
+/* ---------------- HUD ---------------- */
+const hudCache = {};
+function setText(e, k, v) { if (hudCache[k] !== v) { hudCache[k] = v; e.textContent = v; } }
+function updateHud() {
+  setText(el.combo, 'combo', String(G.combo));
+  el.comboWrap.classList.toggle('on', G.combo > 0);
+  const m = multOf(G.combo);
+  const mtxt = '×' + (G.fever > 0 ? m * 2 : m);
+  if (hudCache.mult !== mtxt) { hudCache.mult = mtxt; el.mult.innerHTML = '<small>MULT</small>' + mtxt; }
+  el.mult.classList.toggle('fever', G.fever > 0);
+}
+function hudTick() {
+  if (G.phase !== 'play' && G.phase !== 'finish') return;
+  setText(el.score, 'score', fmt(G.dispScore));
+  setText(el.timer, 'timer', Math.max(0, G.timeLeft / 1000).toFixed(1));
+  el.fever.style.width = (Math.min(1, G.feverGauge) * 100) + '%';
+  const ct = G.fever > 0 ? 1 : (G.combo > 0 ? Math.max(0, G.comboT / COMBO_MS) : 0);
+  el.comboBar.style.transform = 'scaleX(' + ct.toFixed(3) + ')';
+}
+
+/* ---------------- Render ---------------- */
+function render() {
+  const { w, h, dpr } = G, t = performance.now() / 1000, fever = G.fever > 0;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const bp = Audio.beatPhase();
+  const pulse = bp == null ? 0.5 + 0.5 * Math.sin(t * 2) : Math.pow(1 - bp, 3);
+  ctx.fillStyle = fever ? 'hsl(' + ((t * 120) % 360) + ' 70% 9%)' : '#070312';
+  ctx.fillRect(0, 0, w, h);
+  const g = ctx.createRadialGradient(w / 2, h / 2, 0, w / 2, h / 2, Math.max(w, h) * 0.75);
+  g.addColorStop(0, fever ? 'hsla(' + ((t * 120 + 60) % 360) + ' 90% 35% / ' + (0.35 + 0.25 * pulse) + ')' : 'rgba(70,24,140,' + (0.22 + 0.22 * pulse) + ')');
+  g.addColorStop(1, 'rgba(7,3,18,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, w, h);
+  /* dot grid */
+  const gs = 44 * G.scale; ctx.fillStyle = 'rgba(159,144,201,' + (0.10 + 0.12 * pulse) + ')';
+  for (let x = (w / 2) % gs; x < w; x += gs) for (let y = (h / 2) % gs; y < h; y += gs) { ctx.fillRect(x - 1, y - 1, 2, 2); }
+  let sx = 0, sy = 0;
+  if (G.shake > 0 && !reduceMotion) { sx = (Math.random() * 2 - 1) * G.shake; sy = (Math.random() * 2 - 1) * G.shake; }
+  ctx.translate(sx, sy);
+  for (const wv of G.waves) {
+    ctx.beginPath(); ctx.arc(wv.x, wv.y, wv.r, 0, Math.PI * 2);
+    ctx.strokeStyle = wv.white ? 'rgba(255,255,255,' + (wv.a * 0.6) + ')' : 'hsla(' + wv.hue + ' 100% 72% / ' + (wv.a * 0.85) + ')';
+    ctx.lineWidth = 1 + 5 * wv.a; ctx.stroke();
+  }
+  for (const o of G.orbs) if (!o.dead) drawOrb(o, t);
+  for (const p of G.parts) {
+    const a = 1 - p.age / p.life; if (a <= 0) continue;
+    ctx.fillStyle = 'hsla(' + p.hue + ' ' + p.sat + '% ' + p.light + '% / ' + a + ')';
+    if (p.rect) { ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillRect(-p.size / 2, -p.size / 4, p.size, p.size / 2); ctx.restore(); }
+    else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size * a, 0, Math.PI * 2); ctx.fill(); }
+  }
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.lineJoin = 'round';
+  for (const f of G.floaters) {
+    const p = f.age / f.life;
+    const s = p < 0.12 ? 0.4 + (p / 0.12) * 0.9 : 1.3 - 0.3 * Math.min(1, (p - 0.12) / 0.2);
+    const a = p > 0.65 ? 1 - (p - 0.65) / 0.35 : 1;
+    ctx.font = '400 ' + Math.round(f.size * s * G.scale) + 'px ' + DISPLAY;
+    ctx.globalAlpha = a;
+    ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(7,3,18,0.75)'; ctx.strokeText(f.text, f.x, f.y);
+    ctx.fillStyle = f.white ? '#fff' : 'hsl(' + f.hue + ' 100% 78%)'; ctx.fillText(f.text, f.x, f.y);
+  }
+  ctx.globalAlpha = 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (G.flash.a > 0) { ctx.globalAlpha = G.flash.a; ctx.fillStyle = G.flash.c; ctx.fillRect(0, 0, w, h); ctx.globalAlpha = 1; }
+  if (G.phase === 'play' && G.timeLeft < 10000 && !reduceMotion) {
+    const a = 0.22 + 0.18 * Math.sin(t * 12);
+    const vg = ctx.createRadialGradient(w / 2, h / 2, Math.min(w, h) * 0.4, w / 2, h / 2, Math.max(w, h) * 0.8);
+    vg.addColorStop(0, 'rgba(255,40,40,0)'); vg.addColorStop(1, 'rgba(255,40,40,' + a + ')');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, w, h);
+  }
+}
+function drawOrb(o, t) {
+  const remain = 1 - o.age / o.life;
+  const r = orbVisualR(o) * (1 + 0.05 * Math.sin(t * 8 + o.seed));
+  if (r <= 0.5) return;
+  const col = 'hsl(' + o.hue + ' 100% 65%)', colL = 'hsl(' + o.hue + ' 100% 86%)';
+  const gg = ctx.createRadialGradient(o.x, o.y, r * 0.6, o.x, o.y, r * 2.2);
+  gg.addColorStop(0, 'hsla(' + o.hue + ' 100% 65% / ' + (o.gold ? 0.6 : 0.45) + ')'); gg.addColorStop(1, 'hsla(' + o.hue + ' 100% 65% / 0)');
+  ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(o.x, o.y, r * 2.2, 0, Math.PI * 2); ctx.fill();
+  const bg = ctx.createRadialGradient(o.x - r * 0.35, o.y - r * 0.35, r * 0.1, o.x, o.y, r);
+  bg.addColorStop(0, '#fff'); bg.addColorStop(0.25, colL); bg.addColorStop(1, col);
+  ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(o.x, o.y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(o.x, o.y, r + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, remain));
+  ctx.strokeStyle = remain < 0.25 ? '#ff4b4b' : 'rgba(255,255,255,0.85)'; ctx.lineWidth = remain < 0.25 ? 4 : 3; ctx.lineCap = 'round'; ctx.stroke();
+  if (o.gold) {
+    ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(t * 2); ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2;
+    for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 4); ctx.beginPath(); ctx.moveTo(0, -r * 1.35); ctx.lineTo(0, -r * 1.75); ctx.stroke(); }
+    ctx.restore();
+    ctx.fillStyle = '#3a2a00'; ctx.font = '400 ' + Math.round(r) + 'px ' + DISPLAY; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('★', o.x, o.y + 1);
+  }
+}
+
+/* ---------------- Input ---------------- */
+canvas.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (G.phase !== 'play') return;
+  Audio.resume();
+  const rect = canvas.getBoundingClientRect(), x = e.clientX - rect.left, y = e.clientY - rect.top;
+  G.stats.taps++;
+  let hit = null, bd = Infinity;
+  for (const o of G.orbs) {
+    if (o.dead) continue;
+    const d = Math.hypot(o.x - x, o.y - y), hr = orbVisualR(o) * 1.35 + 14 * G.scale;
+    if (d < hr && d < bd) { bd = d; hit = o; }
+  }
+  if (hit) popOrb(hit);
+  else { Audio.whiff(); G.waves.push({ x, y, r: 4, R: 34 * G.scale, hue: 0, a: 0.6, white: true }); }
+}, { passive: false });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+$('#startBtn').addEventListener('click', startGame);
+$('#againBtn').addEventListener('click', startGame);
+el.mute.addEventListener('click', () => { const m = Audio.toggleMute(); el.mute.textContent = m ? '✕' : '♪'; el.mute.setAttribute('aria-pressed', String(m)); });
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'Enter') { if (G.phase === 'menu' || G.phase === 'result') { e.preventDefault(); startGame(); } }
+  if (e.key === 'm' || e.key === 'M') el.mute.click();
+});
+let toastTimer = null;
+function toast(msg) { el.toast.textContent = msg; el.toast.classList.add('on'); clearTimeout(toastTimer); toastTimer = setTimeout(() => el.toast.classList.remove('on'), 1600); }
+$('#copyBtn').addEventListener('click', () => {
+  if (!lastResult) return;
+  const text = 'DOPAMAX  SCORE ' + fmt(lastResult.score) + ' / RANK ' + lastResult.rank + ' / MAX COMBO ' + lastResult.maxCombo + '  #DopaMax';
+  const fallback = () => {
+    try { const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); const ok = document.execCommand && document.execCommand('copy'); document.body.removeChild(ta); toast(ok ? 'コピーした！' : text); }
+    catch (e) { toast(text); }
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => toast('コピーした！'), fallback);
+  else fallback();
+});
+document.addEventListener('visibilitychange', () => { if (document.hidden) Audio.stopMusic(); else if (G.phase === 'play') Audio.startMusic(); });
+
+/* ---------------- Loop ---------------- */
+let last = performance.now();
+function frame(n) {
+  let dt = n - last; last = n; if (dt > 50) dt = 50;
+  update(dt); render(); hudTick();
+  requestAnimationFrame(frame);
+}
+function boot() { resize(); requestAnimationFrame(frame); }
+if (window.claude && window.claude.hot && window.claude.hot.ready) window.claude.hot.ready(boot); else boot();
+})();
+</script>
+
+</body>
+</html>
